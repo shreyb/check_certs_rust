@@ -84,12 +84,30 @@ fn main() {
         .expect("Could not write command output to stdout");
 }
 
-fn run<R, W>(args: Args, stdin: &mut R, stdout: &mut W) -> Result<(), String>
+fn run<R, W>(args: Args, stdout: &mut W) -> Result<(), String>
 where
-    R: BufRead,
     W: Write,
 {
     Ok(())
 }
 
 // TODO: Future - check config file and for expt, role combo, get cert used
+//
+#[cfg(tests)]
+mod tests {
+
+    fn get_cert_path_acct_ok() {}
+    fn get_cert_path_filename_ok() {}
+    fn get_cert_path_acct_and_filename_err() {}
+    fn get_cert_path_neither_acct_and_filename_err() {}
+
+    fn run_get_cert_path_panic() {}
+    #[test]
+    fn run_with_mocked_openssl() {}
+    #[test]
+    fn run_with_good_cert() {}
+
+    fn run_with_bad_cert() {}
+
+    fn run_with_bad_writer() {}
+}
