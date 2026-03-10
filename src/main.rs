@@ -1,10 +1,10 @@
-use std::env;
-use std::process;
-use std::path;
-use std::string;
 use clap::Parser;
+use std::env;
+use std::io::{self, BufRead, Write};
+use std::path;
+use std::process::{self, exit};
 
-/// Check certificate file for Managed Proxies
+// Check certificate file for Managed Proxies
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -12,64 +12,76 @@ struct Args {
     #[arg(short, long)]
     accountname: Option<String>,
 
-
     #[arg(short, long)]
     filename: Option<String>,
+}
 
+// TODO: We got a lifetime error if root is just a path::PathBuf.  Come back and see if it makes
+// sense to assign a lifetime
+fn get_cert_path(
+    root: path::PathBuf,
+    account_name: Option<String>,
+    file_name: Option<String>,
+) -> Result<path::PathBuf, String> {
+    match (account_name, file_name) {
+        (Some(val), None) => {
+            let rel_path: path::PathBuf = ["certs", &val].iter().collect();
+            let mut acct_cert = path::PathBuf::from(root).join(rel_path);
+            acct_cert.set_extension("cert");
+            Ok(acct_cert)
+        }
+        (None, Some(val)) => Ok([val.as_str()].iter().collect()),
+        (Some(_), Some(_)) => Err(String::from(
+            "Only one of account_name or file_name can be specified",
+        )),
+        (None, None) => Err(String::from(
+            "Must specify one of account_name or file_name",
+        )),
+    }
 }
 
 fn main() {
     // Parse arguments
     let args = Args::parse();
 
-    if args.accountname.is_none() & args.filename.is_none() {
-        println!("Must specify either --accountname or --filename");
-        process::exit(1);
-    }
-
-    if args.accountname.is_some() & args.filename.is_some() {
-        println!("Must specify either --accountname or --filename");
-        process::exit(1);
-    }
-
     // Find path of cert file
     let root = env::current_dir().expect("Can't find current directory");
-    let file_name: path::PathBuf = if args.accountname.is_some() {
-        let rel_path: path::PathBuf = ["certs", args.accountname.expect("accountname should be something").as_str()].iter().collect();
-        let mut a = root.join(rel_path);
-        a.set_extension("cert");
-        a
-    } else if args.filename.is_some() {
-        [args.filename.expect("filename should be something").as_str()].iter().collect()
-    } else {
-        println!("One of accountname or filename should be specified");
-        process::exit(1);
-    };
+    let file_name = get_cert_path(root, args.accountname, args.filename).unwrap();
 
-    let _x = file_name.display();
-    if !file_name.try_exists().expect("Can't check existence of {_x}") {
-        println!("The file {_x} doesn't exist");
-        process::exit(1);
-    }
+    file_name
+        .try_exists()
+        .expect("The file {file_name} doesn't exist");
 
-    println!("Filename: {_x}");
+    println!("Filename: {}", file_name.display());
 
     // Run the command
     let out = process::Command::new("openssl")
-            .args([
-                "x509",
-                "-in", file_name.to_str().expect("Couldn't convert file_name to string"),
-                "-noout", "-subject", "-dates",
-                "-nameopt", "compat"])
-            .output()
-            .expect("Could not run openssl command");
+        .args([
+            "x509",
+            "-in",
+            file_name
+                .to_str()
+                .expect("Couldn't convert file_name to string"),
+            "-noout",
+            "-subject",
+            "-dates",
+            "-nameopt",
+            "compat",
+        ])
+        .output()
+        .expect("Could not run openssl command");
 
-   let stdout = string::String::from_utf8(out.stdout).expect("Couldn't convert stdout from utf8");
-   print!("{}", stdout);
+    if !out.status.success() {
+        println!(
+            "openssl command failed.  The input file {} is probably not a valid cert file.",
+            file_name.display()
+        );
+        exit(1);
+    }
 
-
+    io::stdout()
+        .write_all(&out.stdout)
+        .expect("Could not write command output to stdout");
 }
 
 // TODO: Future - check config file and for expt, role combo, get cert used
-
-
