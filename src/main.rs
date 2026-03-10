@@ -84,4 +84,12 @@ fn main() {
         .expect("Could not write command output to stdout");
 }
 
+fn run<R, W>(args: Args, stdin: &mut R, stdout: &mut W) -> Result<(), String>
+where
+    R: BufRead,
+    W: Write,
+{
+    Ok(())
+}
+
 // TODO: Future - check config file and for expt, role combo, get cert used
