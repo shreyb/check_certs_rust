@@ -1,27 +1,35 @@
-use clap::Parser;
+use clap::{ArgGroup, Command, arg};
 use std::env;
 use std::io::{self, Write};
 use std::path;
 use std::process;
 
-// Check certificate file for Managed Proxies
-
 // TODO: Future - check config file and for expt, role combo, get cert used
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    #[arg(short, long)]
-    accountname: Option<String>,
+fn create_command_with_args() -> Command {
+    Command::new("check_cert")
+        .arg_required_else_help(true)
+        .arg(arg!(-c --config     <FILE>    "Configuration file")
+            .requires("accountname"))
+        .arg(arg!(-a --accountname <ACCOUNTNAME>   "Account name from config file (must be used with -c/--config")
+            .requires("config"))
+        .arg(arg!(-f --filename  <FILE>   "Filename of certificate to check"))
+        .group(ArgGroup::new("configfile_group")
+            .args(["config", "accountname"])
+            .multiple(true)
+            .conflicts_with("filename")
+        )
+}
 
-    #[arg(short, long)]
-    filename: Option<String>,
+struct RunArgs<'a> {
+    filename: Option<&'a String>,
+    accountname: Option<&'a String>,
 }
 
 fn get_cert_path(
     root: path::PathBuf,
-    account_name: Option<String>,
-    file_name: Option<String>,
+    account_name: Option<&String>,
+    file_name: Option<&String>,
 ) -> Result<path::PathBuf, String> {
     match (account_name, file_name) {
         (Some(val), None) => {
@@ -41,7 +49,13 @@ fn get_cert_path(
 }
 
 fn main() {
-    let args = Args::parse();
+    // let args = Args::parse();
+    let matches = create_command_with_args().get_matches();
+    let args = RunArgs {
+        filename: matches.get_one::<String>("filename"),
+        accountname: matches.get_one::<String>("accountname"),
+    };
+
     let root = env::current_dir().expect("Can't find current directory");
     let mut out = io::stdout(); // Set stdout
 
@@ -50,7 +64,7 @@ fn main() {
     };
 }
 
-fn run<W>(args: Args, stdout: &mut W, root: path::PathBuf) -> Result<(), String>
+fn run<W>(args: RunArgs, stdout: &mut W, root: path::PathBuf) -> Result<(), String>
 where
     W: Write,
 {
@@ -113,7 +127,7 @@ mod tests {
     fn get_cert_path_acct_ok() {
         let res = get_cert_path(
             path::PathBuf::from("fakeroot"),
-            Some(String::from("account")),
+            Some(&String::from("account")),
             None,
         );
         let expected: path::PathBuf = ["fakeroot", "certs", "account.cert"].iter().collect();
@@ -125,7 +139,7 @@ mod tests {
         let res = get_cert_path(
             path::PathBuf::from("fakeroot"),
             None,
-            Some(String::from("path_to_file")),
+            Some(&String::from("path_to_file")),
         );
         assert_eq!(res, Ok(path::PathBuf::from("path_to_file")));
     }
@@ -134,8 +148,8 @@ mod tests {
     fn get_cert_path_acct_and_filename_err() {
         let res = get_cert_path(
             path::PathBuf::from("fakeroot"),
-            Some(String::from("account")),
-            Some(String::from("path_to_file")),
+            Some(&String::from("account")),
+            Some(&String::from("path_to_file")),
         );
         assert_eq!(
             res,
@@ -158,7 +172,7 @@ mod tests {
 
     #[test]
     fn run_get_cert_path_propagate_err() {
-        let args = Args {
+        let args = RunArgs {
             accountname: None,
             filename: None,
         };
@@ -174,9 +188,9 @@ mod tests {
 
     #[test]
     fn run_get_cert_path_file_dne_err() {
-        let args = Args {
+        let args = RunArgs {
             accountname: None,
-            filename: Some(String::from("fake_file")),
+            filename: Some(&String::from("fake_file")),
         };
         let mut out = std::io::Cursor::new(vec![]);
         match run(args, &mut out, path::PathBuf::from("fakeroot")) {
@@ -201,11 +215,15 @@ mod tests {
             Ok(val) => val,
         };
 
-        let args = Args {
+        let val: String;
+        let args = RunArgs {
             accountname: None,
             filename: Some({
                 match filename.into_os_string().into_string() {
-                    Ok(val) => val,
+                    Ok(_val) => {
+                        val = _val.clone();
+                        &val
+                    }
                     Err(_) => return Err(String::from("Could not convert filename into string")),
                 }
             }),
@@ -247,9 +265,9 @@ mod tests {
             .into_string()
             .expect("Couldn't convert Path into String");
 
-        let args = Args {
+        let args = RunArgs {
             accountname: None,
-            filename: Some(filename),
+            filename: Some(&filename),
         };
         let mut out = BadWriter {};
 
@@ -268,21 +286,22 @@ mod tests {
     fn run_with_good_cert() {
         let root = env::current_dir().expect("Can't find current directory");
         let filename = root
-            .join("certs")
+            .join("test_files")
             .join("acct.cert")
             .into_os_string()
             .into_string()
             .expect("Couldn't convert Path into String");
 
-        let args = Args {
+        let _filename = filename.clone();
+        let args = RunArgs {
             accountname: None,
-            filename: Some(filename),
+            filename: Some(&filename),
         };
         let mut out = std::io::Cursor::new(vec![]);
 
         let _ = run(args, &mut out, root).expect("Should not have gotten error");
-        let expected_out = "Filename: /Users/sbhat/RustStuff/check_cert/certs/acct.cert
-subject=/DC=org/DC=incommon/C=US/ST=Illinois/O=Fermi Forward Discovery Group, LLC/CN=jobsub-test.fnal.gov
+        let expected_out = format!("Filename: {}\n", _filename).to_owned() + 
+"subject=/DC=org/DC=incommon/C=US/ST=Illinois/O=Fermi Forward Discovery Group, LLC/CN=jobsub-test.fnal.gov
 notBefore=Oct 10 00:00:00 2025 GMT
 notAfter=Nov  9 23:59:59 2026 GMT
 ";
@@ -293,16 +312,16 @@ notAfter=Nov  9 23:59:59 2026 GMT
     fn run_with_bad_cert() {
         let root = env::current_dir().expect("Can't find current directory");
         let filename = root
-            .join("certs")
+            .join("test_files")
             .join("blah.cert")
             .into_os_string()
             .into_string()
             .expect("Couldn't convert Path into String");
 
         let _filename = filename.clone();
-        let args = Args {
+        let args = RunArgs {
             accountname: None,
-            filename: Some(filename),
+            filename: Some(&filename),
         };
         let mut out = std::io::Cursor::new(vec![]);
 
