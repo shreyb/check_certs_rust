@@ -1,14 +1,16 @@
 use clap::Parser;
 use std::env;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, Write};
 use std::path;
-use std::process::{self, exit};
+use std::process;
 
 // Check certificate file for Managed Proxies
+
+// TODO: Future - check config file and for expt, role combo, get cert used
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Name of the person to greet
     #[arg(short, long)]
     accountname: Option<String>,
 
@@ -16,8 +18,6 @@ struct Args {
     filename: Option<String>,
 }
 
-// TODO: We got a lifetime error if root is just a path::PathBuf.  Come back and see if it makes
-// sense to assign a lifetime
 fn get_cert_path(
     root: path::PathBuf,
     account_name: Option<String>,
@@ -41,72 +41,31 @@ fn get_cert_path(
 }
 
 fn main() {
-    // Parse arguments
     let args = Args::parse();
-
-    // Find path of cert file
     let root = env::current_dir().expect("Can't find current directory");
+    let mut out = io::stdout(); // Set stdout
 
-    // TODO: run starts here
-    let file_name = get_cert_path(root, args.accountname, args.filename).unwrap();
-
-    file_name
-        .try_exists()
-        .expect("The file {file_name} doesn't exist");
-
-    println!("Filename: {}", file_name.display());
-
-    // Run the command
-    let out = process::Command::new("openssl")
-        .args([
-            "x509",
-            "-in",
-            file_name
-                .to_str()
-                .expect("Couldn't convert file_name to string"),
-            "-noout",
-            "-subject",
-            "-dates",
-            "-nameopt",
-            "compat",
-        ])
-        .output()
-        .expect("Could not run openssl command");
-
-    // TODO: Here
-    if !out.status.success() {
-        println!(
-            "openssl command failed.  The input file {} is probably not a valid cert file.",
-            file_name.display()
-        );
-        exit(1);
-    }
-
-    io::stdout()
-        .write_all(&out.stdout)
-        .expect("Could not write command output to stdout");
+    if let Err(e) = run(args, &mut out, root) {
+        println!("Error running check_cert: {e}")
+    };
 }
 
 fn run<W>(args: Args, stdout: &mut W, root: path::PathBuf) -> Result<(), String>
 where
     W: Write,
 {
+    // Get our cert filename
     let filename = get_cert_path(root, args.accountname, args.filename)?;
     if let Err(e) = stdout.write_all(&format!("Filename: {}\n", filename.display()).as_bytes()) {
-        return Err(String::from("Could not write filename to stdout"));
+        return Err(format!("Could not write filename to stdout: {e}"));
     }
+
     if let Ok(exists) = filename.try_exists() {
         if !exists {
-            return Err(String::from(format!(
-                "The file {} doesn't exist",
-                filename.display()
-            )));
+            return Err(format!("The file {} doesn't exist", filename.display()));
         }
     } else {
-        return Err(String::from(format!(
-            "The file {} doesn't exist",
-            filename.display()
-        )));
+        return Err(format!("The file {} doesn't exist", filename.display()));
     }
 
     // Run the command
@@ -126,10 +85,15 @@ where
         .output();
     match out {
         Ok(_out) => {
-            match stdout.write(&_out.stdout) {
-                Ok(_) => {}
-                Err(e) => return Err(format!("Could not write output to stdout {}", e)),
+            if let Err(e) = stdout.write(&_out.stdout) {
+                return Err(format!("Could not write output to stdout {}", e));
             };
+            if !_out.status.success() {
+                return Err(format!(
+                    "openssl command failed.  The input file {} is probably not a valid cert file.",
+                    filename.display()
+                ));
+            }
         }
         Err(e) => return Err(format!("Could not run openssl command: {}", e)),
     };
@@ -137,17 +101,9 @@ where
     Ok(())
 }
 
-// TODO: Future - check config file and for expt, role combo, get cert used
-//
 #[cfg(test)]
 mod tests {
-    use std::{
-        error::Error,
-        fmt::Display,
-        fs::{self, File, Permissions},
-        os::unix::fs::PermissionsExt,
-        path::{Path, PathBuf},
-    };
+    use std::{fs::File, path::PathBuf};
 
     use tmp_env;
 
@@ -250,7 +206,7 @@ mod tests {
             filename: Some({
                 match filename.into_os_string().into_string() {
                     Ok(val) => val,
-                    Err(e) => return Err(String::from("Could not convert filename into string")),
+                    Err(_) => return Err(String::from("Could not convert filename into string")),
                 }
             }),
         };
