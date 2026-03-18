@@ -4,8 +4,277 @@ mod tests {
 
     use std::{fs::File, path::PathBuf};
 
-    use tmp_env::{self, create_temp_dir};
+    use tmp_env::{self, TmpDir, create_temp_dir};
 
+    fn tmp_dir_with_config(s: &str) -> TmpDir {
+        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
+        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
+        File::create_new(filename.as_path())
+            .expect("Couldn't create new temp file for config")
+            .write_all(s.as_bytes())
+            .expect("Couldn't write data to file");
+        tmp_path
+    }
+
+    #[test]
+    fn get_cert_path_config_file() {
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
+    experiment:
+        accounts:
+            account: role
+            foo: bar
+        certfile: pathtofile",
+        );
+        assert_eq!(
+            get_cert_path(
+                path::PathBuf::from("fakeroot"),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
+                &String::from("experiment"),
+                &String::from("account"),
+            ),
+            Ok(path::PathBuf::from("pathtofile"))
+        );
+    }
+    #[test]
+    fn get_cert_path_config_file_err() {
+        let tmp_path = tmp_dir_with_config("foo: bar");
+        assert_eq!(
+            get_cert_path(
+                path::PathBuf::from("fakeroot"),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
+                &String::from("experiment"),
+                &String::from("account"),
+            ),
+            Err(String::from("No experiments entry in YAML"))
+        );
+    }
+    #[test]
+    fn get_cert_path_construct() {
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
+    experiment:
+        accounts:
+            account: role
+            foo: bar",
+        );
+        let res = get_cert_path(
+            path::PathBuf::from("fakeroot"),
+            &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
+            &String::from("experiment"),
+            &String::from("account"),
+        );
+        let expected: path::PathBuf = ["fakeroot", "certs", "account.cert"].iter().collect();
+        assert_eq!(res, Ok(expected));
+    }
+
+    #[test]
+    fn run_get_cert_path_config_experiment_accountname_not_specified() {
+        struct TestArgs<'a> {
+            config: Option<&'a String>,
+            experiment: Option<&'a String>,
+            accountname: Option<&'a String>,
+        }
+
+        let some_config = Some(&String::from("config"));
+        let some_expt = Some(&String::from("expt"));
+        let some_acct = Some(&String::from("acct"));
+
+        let test_cases: Vec<TestArgs> = vec![
+            TestArgs {
+                config: None,
+                experiment: some_expt,
+                accountname: some_acct,
+            },
+            TestArgs {
+                config: some_config,
+                experiment: None,
+                accountname: some_acct,
+            },
+            TestArgs {
+                config: some_config,
+                experiment: some_expt,
+                accountname: None,
+            },
+        ];
+
+        for test in test_cases {
+            let args = RunArgs {
+                accountname: test.accountname,
+                filename: None,
+                experiment: test.experiment,
+                config: test.config,
+            };
+            let mut out = std::io::Cursor::new(vec![]);
+            assert!(
+                run(args, &mut out, path::PathBuf::from("fakeroot"))
+                    .is_err_and(|e| e.contains("Since filename is not specified")
+                        && e.contains("should be specified"))
+            )
+        }
+    }
+
+    #[test]
+    fn run_get_cert_path_file_dne_err() {
+        let args = RunArgs {
+            accountname: None,
+            filename: Some(&String::from("fake_file")),
+            experiment: None,
+            config: None,
+        };
+        let mut out = std::io::Cursor::new(vec![]);
+        match run(args, &mut out, path::PathBuf::from("fakeroot")) {
+            Err(e) => assert_eq!(e, String::from("The file fake_file doesn't exist",)),
+            Ok(_) => panic!("Should have gotten an Err"),
+        }
+    }
+
+    #[test]
+    fn run_with_mocked_openssl() -> Result<(), String> {
+        // This test returns a Result and tries not to panic so that the tempdir can be deleted
+        // once the test is finished and the variable dir goes out of scope
+
+        // Create tempdir and point PATH there, with no openssl executable
+        let dir = create_temp_dir().expect("Cannot create temp dir");
+        let _tmp_env = tmp_env::set_var("PATH", dir.as_path());
+
+        // Create the file that we'll be fake-reading
+        let filename = PathBuf::from(dir.as_path()).join("myfile");
+        if let Err(e) = File::create_new(filename.as_path()) {
+            return Err(String::from(e.to_string()));
+        };
+
+        let val: String;
+        let args = RunArgs {
+            accountname: None,
+            config: None,
+            experiment: None,
+            filename: Some({
+                match filename.into_os_string().into_string() {
+                    Ok(_val) => {
+                        val = _val.clone();
+                        &val
+                    }
+                    Err(_) => return Err(String::from("Could not convert filename into string")),
+                }
+            }),
+        };
+        let mut out = std::io::Cursor::new(vec![]);
+
+        if let Err(e) = run(args, &mut out, path::PathBuf::from("fakeroot")) {
+            if !e.contains("Could not run openssl command") {
+                return Err(String::from(
+                    "Should have gotten error message \"Could not run openssl command\". Got error {e}",
+                ));
+            }
+        } else {
+            return Err(String::from(
+                "Should have gotten error message \"Could not run openssl command\"",
+            ));
+        }
+        Ok(())
+    }
+
+    struct BadWriter {}
+
+    impl Write for BadWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "error writing"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::Other, "error flushing"))
+        }
+    }
+
+    #[test]
+    fn run_with_mocked_bad_writer_good_cert_err() {
+        let filename = env::current_dir()
+            .expect("Can't find current directory")
+            .join("certs")
+            .join("acct.cert")
+            .into_os_string()
+            .into_string()
+            .expect("Couldn't convert Path into String");
+
+        let args = RunArgs {
+            experiment: None,
+            config: None,
+            accountname: None,
+            filename: Some(&filename),
+        };
+        let mut out = BadWriter {};
+
+        if let Err(e) = run(args, &mut out, path::PathBuf::from("fakeroot")) {
+            if !e.contains("Could not write filename to stdout") {
+                panic!(
+                    "Should have gotten error message \"Could not write filename to stdout\". Got error {e}"
+                );
+            }
+        } else {
+            panic!("Should have gotten error message \"Could not write filename to stdout\".",);
+        }
+    }
+
+    #[test]
+    fn run_with_good_cert() {
+        let root = env::current_dir().expect("Can't find current directory");
+        let filename = root
+            .join("test_files")
+            .join("acct.cert")
+            .into_os_string()
+            .into_string()
+            .expect("Couldn't convert Path into String");
+
+        let _filename = filename.clone();
+        let args = RunArgs {
+            config: None,
+            experiment: None,
+            accountname: None,
+            filename: Some(&filename),
+        };
+        let mut out = std::io::Cursor::new(vec![]);
+
+        let _ = run(args, &mut out, root).expect("Should not have gotten error");
+        let expected_out = format!("Filename: {}\n", _filename).to_owned() +
+    "subject=/DC=org/DC=incommon/C=US/ST=Illinois/O=Fermi Forward Discovery Group, LLC/CN=jobsub-test.fnal.gov
+notBefore=Oct 10 00:00:00 2025 GMT
+notAfter=Nov  9 23:59:59 2026 GMT
+";
+        assert_eq!(out.into_inner(), expected_out.as_bytes());
+    }
+
+    #[test]
+    fn run_with_bad_cert() {
+        let root = env::current_dir().expect("Can't find current directory");
+        let filename = root
+            .join("test_files")
+            .join("blah.cert")
+            .into_os_string()
+            .into_string()
+            .expect("Couldn't convert Path into String");
+
+        let _filename = filename.clone();
+        let args = RunArgs {
+            config: None,
+            experiment: None,
+            accountname: None,
+            filename: Some(&filename),
+        };
+        let mut out = std::io::Cursor::new(vec![]);
+
+        match run(args, &mut out, root) {
+            Ok(_) => panic!("Should have gotten an error"),
+            Err(e) => assert_eq!(
+                e.to_string(),
+                format!(
+                    "openssl command failed.  The input file {} is probably not a valid cert file.",
+                    _filename
+                )
+            ),
+        }
+    }
+
+    // TODO: See if we can consolidate some of this code so we're not repeating
     #[test]
     fn check_config_bad_file() {
         // Bogus file
@@ -361,220 +630,5 @@ mod tests {
         .expect("shouldn't cause an error");
 
         assert!(res.is_some_and(|x| x == String::from("/path/to/nondefault/cert")));
-    }
-
-    #[test]
-    fn get_cert_path_acct_ok() {
-        let res = get_cert_path(
-            path::PathBuf::from("fakeroot"),
-            Some(&String::from("account")),
-            None,
-        );
-        let expected: path::PathBuf = ["fakeroot", "certs", "account.cert"].iter().collect();
-        assert_eq!(res, Ok(expected));
-    }
-
-    #[test]
-    fn get_cert_path_filename_ok() {
-        let res = get_cert_path(
-            path::PathBuf::from("fakeroot"),
-            None,
-            Some(&String::from("path_to_file")),
-        );
-        assert_eq!(res, Ok(path::PathBuf::from("path_to_file")));
-    }
-
-    #[test]
-    fn get_cert_path_acct_and_filename_err() {
-        let res = get_cert_path(
-            path::PathBuf::from("fakeroot"),
-            Some(&String::from("account")),
-            Some(&String::from("path_to_file")),
-        );
-        assert_eq!(
-            res,
-            Err(String::from(
-                "Only one of account_name or file_name can be specified"
-            ))
-        );
-    }
-
-    #[test]
-    fn get_cert_path_neither_acct_and_filename_err() {
-        let res = get_cert_path(path::PathBuf::from("fakeroot"), None, None);
-        assert_eq!(
-            res,
-            Err(String::from(
-                "Must specify one of account_name or file_name",
-            ))
-        );
-    }
-
-    #[test]
-    fn run_get_cert_path_propagate_err() {
-        let args = RunArgs {
-            accountname: None,
-            filename: None,
-        };
-        let mut out = std::io::Cursor::new(vec![]);
-        match run(args, &mut out, path::PathBuf::from("fakeroot")) {
-            Err(e) => assert_eq!(
-                e,
-                String::from("Must specify one of account_name or file_name",)
-            ),
-            Ok(_) => panic!("Should have gotten an Err"),
-        }
-    }
-
-    #[test]
-    fn run_get_cert_path_file_dne_err() {
-        let args = RunArgs {
-            accountname: None,
-            filename: Some(&String::from("fake_file")),
-        };
-        let mut out = std::io::Cursor::new(vec![]);
-        match run(args, &mut out, path::PathBuf::from("fakeroot")) {
-            Err(e) => assert_eq!(e, String::from("The file fake_file doesn't exist",)),
-            Ok(_) => panic!("Should have gotten an Err"),
-        }
-    }
-
-    #[test]
-    fn run_with_mocked_openssl() -> Result<(), String> {
-        // This test returns a Result and tries not to panic so that the tempdir can be deleted
-        // once the test is finished and the variable dir goes out of scope
-
-        // Create tempdir and point PATH there, with no openssl executable
-        let dir = create_temp_dir().expect("Cannot create temp dir");
-        let _tmp_env = tmp_env::set_var("PATH", dir.as_path());
-
-        // Create the file that we'll be fake-reading
-        let filename = PathBuf::from(dir.as_path()).join("myfile");
-        match File::create_new(filename.as_path()) {
-            Err(e) => return Err(String::from(e.to_string())),
-            Ok(val) => val,
-        };
-
-        let val: String;
-        let args = RunArgs {
-            accountname: None,
-            filename: Some({
-                match filename.into_os_string().into_string() {
-                    Ok(_val) => {
-                        val = _val.clone();
-                        &val
-                    }
-                    Err(_) => return Err(String::from("Could not convert filename into string")),
-                }
-            }),
-        };
-        let mut out = std::io::Cursor::new(vec![]);
-
-        if let Err(e) = run(args, &mut out, path::PathBuf::from("fakeroot")) {
-            if !e.contains("Could not run openssl command") {
-                return Err(String::from(
-                    "Should have gotten error message \"Could not run openssl command\". Got error {e}",
-                ));
-            }
-        } else {
-            return Err(String::from(
-                "Should have gotten error message \"Could not run openssl command\"",
-            ));
-        }
-        Ok(())
-    }
-
-    struct BadWriter {}
-
-    impl Write for BadWriter {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::Other, "error writing"))
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(io::ErrorKind::Other, "error flushing"))
-        }
-    }
-
-    #[test]
-    fn run_with_mocked_bad_writer_good_cert_err() {
-        let filename = env::current_dir()
-            .expect("Can't find current directory")
-            .join("certs")
-            .join("acct.cert")
-            .into_os_string()
-            .into_string()
-            .expect("Couldn't convert Path into String");
-
-        let args = RunArgs {
-            accountname: None,
-            filename: Some(&filename),
-        };
-        let mut out = BadWriter {};
-
-        if let Err(e) = run(args, &mut out, path::PathBuf::from("fakeroot")) {
-            if !e.contains("Could not write filename to stdout") {
-                panic!(
-                    "Should have gotten error message \"Could not write filename to stdout\". Got error {e}"
-                );
-            }
-        } else {
-            panic!("Should have gotten error message \"Could not write filename to stdout\".",);
-        }
-    }
-
-    #[test]
-    fn run_with_good_cert() {
-        let root = env::current_dir().expect("Can't find current directory");
-        let filename = root
-            .join("test_files")
-            .join("acct.cert")
-            .into_os_string()
-            .into_string()
-            .expect("Couldn't convert Path into String");
-
-        let _filename = filename.clone();
-        let args = RunArgs {
-            accountname: None,
-            filename: Some(&filename),
-        };
-        let mut out = std::io::Cursor::new(vec![]);
-
-        let _ = run(args, &mut out, root).expect("Should not have gotten error");
-        let expected_out = format!("Filename: {}\n", _filename).to_owned() + 
-"subject=/DC=org/DC=incommon/C=US/ST=Illinois/O=Fermi Forward Discovery Group, LLC/CN=jobsub-test.fnal.gov
-notBefore=Oct 10 00:00:00 2025 GMT
-notAfter=Nov  9 23:59:59 2026 GMT
-";
-        assert_eq!(out.into_inner(), expected_out.as_bytes());
-    }
-
-    // TODO: Why are the bad and good cert tests failing SOMETIMES? Getting some issue with no dir
-    #[test]
-    fn run_with_bad_cert() {
-        let root = env::current_dir().expect("Can't find current directory");
-        let filename = root
-            .join("test_files")
-            .join("blah.cert")
-            .into_os_string()
-            .into_string()
-            .expect("Couldn't convert Path into String");
-
-        let _filename = filename.clone();
-        let args = RunArgs {
-            accountname: None,
-            filename: Some(&filename),
-        };
-        let mut out = std::io::Cursor::new(vec![]);
-
-        match run(args, &mut out, root) {
-            Ok(_) => panic!("Should have gotten an error"),
-            Err(e) => assert_eq!(
-                e.to_string(),
-                format!(
-                    "openssl command failed.  The input file {} is probably not a valid cert file.",
-                    _filename
-                )
-            ),
-        }
     }
 }

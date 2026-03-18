@@ -60,9 +60,31 @@ fn run<W>(args: RunArgs, stdout: &mut W, root: path::PathBuf) -> Result<(), Stri
 where
     W: Write,
 {
-    //
+    // 1. If filename is given, use that
+    // 2. Look in config file
+    // 2a. If certfile set, use that
+    // 2b. If not set, construct cert path
+
+    // 1.
+    let filename: path::PathBuf;
+
+    if let Some(val) = args.filename {
+        filename = path::PathBuf::from(val)
+    } else {
+        let config = args
+            .config
+            .ok_or("Since filename is not specified, config should be specified")?;
+        let experiment = args
+            .experiment
+            .ok_or("Since filename is not specified, experiment should be specified")?;
+        let accountname = args
+            .accountname
+            .ok_or("Since filename is not specified, accountname should be specified")?;
+        //
+        filename = get_cert_path(root, config, experiment, accountname)?;
+    }
+
     // Get our cert filename
-    let filename = get_cert_path(root, args.accountname, args.filename)?;
     if let Err(e) = stdout.write_all(&format!("Filename: {}\n", filename.display()).as_bytes()) {
         return Err(format!("Could not write filename to stdout: {e}"));
     }
@@ -110,32 +132,20 @@ where
 
 fn get_cert_path(
     root: path::PathBuf,
-    file_name: Option<&String>,
-    experiment_name: Option<&String>,
-    account_name: Option<&String>,
+    config: &String,
+    experiment_name: &String,
+    account_name: &String,
 ) -> Result<path::PathBuf, String> {
-    // 1. If filename is given, use that
-    // 2. Look in config file
-    // 2a. If certfile set, use that
-    // 2b. If not set, construct cert path
-
-    // let filename_path =
-
-    match (account_name, file_name) {
-        (Some(val), None) => {
-            let rel_path: path::PathBuf = ["certs", &val].iter().collect();
-            let mut acct_cert = path::PathBuf::from(root).join(rel_path);
-            acct_cert.set_extension("cert");
-            Ok(acct_cert)
-        }
-        (None, Some(val)) => Ok([val.as_str()].iter().collect()),
-        (Some(_), Some(_)) => Err(String::from(
-            "Only one of account_name or file_name can be specified",
-        )),
-        (None, None) => Err(String::from(
-            "Must specify one of account_name or file_name",
-        )),
+    // See if certfile is set in config file
+    if let Some(val) = get_certfile_from_config(config, experiment_name, account_name)? {
+        return Ok(path::PathBuf::from(val));
     }
+
+    // Otherwise, construct the cert path
+    let rel_path: path::PathBuf = ["certs", account_name].iter().collect();
+    let mut acct_cert = path::PathBuf::from(root).join(rel_path);
+    acct_cert.set_extension("cert");
+    Ok(acct_cert)
 }
 
 // TODO: Future - check config file and for expt, role combo, get cert used
