@@ -8,38 +8,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 mod tests;
 
-fn create_command_with_args() -> Command {
-    Command::new("check_cert")
-        .arg_required_else_help(true)
-
-        // Config/experiment/account arg group
-        .arg(arg!(-c --config     <FILE>    "Configuration file")
-            .requires("accountname")
-            .requires("experiment"))
-        .arg(arg!(-e --experiment <EXPERIMENT>   "Experiment name from config file (must be used with -c/--config and -a/--accountname")
-            .requires("config")
-            .requires("accountname"))
-        .arg(arg!(-a --accountname <ACCOUNTNAME>   "Account name from config file (must be used with -c/--config and -e/--experiment")
-            .requires("config")
-            .requires("experiment"))
-
-        .arg(arg!(-f --filename  <FILE>   "Filename of certificate to check"))
-        .group(ArgGroup::new("configfile_group")
-            .args(["config", "accountname", "experiment"])
-            .multiple(true)
-            .conflicts_with("filename")
-        )
-}
-
-struct RunArgs<'a> {
-    filename: Option<&'a String>,
-    accountname: Option<&'a String>,
-    experiment: Option<&'a String>,
-    config: Option<&'a String>,
-}
-
 fn main() {
-    // let args = Args::parse();
     let matches = create_command_with_args().get_matches();
     let args = RunArgs {
         filename: matches.get_one::<String>("filename"),
@@ -126,10 +95,44 @@ where
         }
         Err(e) => return Err(format!("Could not run openssl command: {}", e)),
     };
-
     Ok(())
 }
 
+/// Holds the set of args to be sent to the run() func. Validation is done in run()
+struct RunArgs<'a> {
+    filename: Option<&'a String>,
+    accountname: Option<&'a String>,
+    experiment: Option<&'a String>,
+    config: Option<&'a String>,
+}
+
+// Utility functions
+
+/// Define our args to parse
+fn create_command_with_args() -> Command {
+    Command::new("check_cert")
+        .arg_required_else_help(true)
+
+        // Config/experiment/account arg group
+        .arg(arg!(-c --config     <FILE>    "Configuration file")
+            .requires("accountname")
+            .requires("experiment"))
+        .arg(arg!(-e --experiment <EXPERIMENT>   "Experiment name from config file (must be used with -c/--config and -a/--accountname")
+            .requires("config")
+            .requires("accountname"))
+        .arg(arg!(-a --accountname <ACCOUNTNAME>   "Account name from config file (must be used with -c/--config and -e/--experiment")
+            .requires("config")
+            .requires("experiment"))
+
+        .arg(arg!(-f --filename  <FILE>   "Filename of certificate to check"))
+        .group(ArgGroup::new("configfile_group")
+            .args(["config", "accountname", "experiment"])
+            .multiple(true)
+            .conflicts_with("filename")
+        )
+}
+
+/// Given configuration and arguments, return the path to the certificate of interest
 fn get_cert_path(
     root: path::PathBuf,
     config: &String,
@@ -148,26 +151,19 @@ fn get_cert_path(
     Ok(acct_cert)
 }
 
-// TODO: Future - check config file and for expt, role combo, get cert used
-// If we get config file, find accountname
-// Find experiment where we have acccountname set.  If no experiment name, // return error
-// Once we find experiment name, see if experiments.experiment_name.certfile is set.
-// If so, use that value as cert path
-// If not, construct path using root/certs/acct.cert
-//
-// Get the certfile from the configuration at the YAML key
-// experiments.<experiment_name>.certfile if the experiment.<experiment_name> structure has
-// <account_name> configured. If the certfile key is not set, return Ok(None)
+/// Get the certfile from the configuration at the YAML key
+/// experiments.<experiment_name>.certfile if the experiment.<experiment_name> structure has
+/// <account_name> configured. If the certfile key is not set, return Ok(None)
 fn get_certfile_from_config(
     config: &String,
     experiment_name: &String,
     account_name: &String,
 ) -> Result<Option<String>, String> {
+    // Read config file in
     let config_string = match fs::read_to_string(path::PathBuf::from(config)) {
         Ok(val) => val,
         Err(e) => return Err(format!("Couldn't read YAML config to string: {e}")),
     };
-
     let config_yaml = match YamlLoader::load_from_str(&config_string) {
         Ok(val) => val,
         Err(e) => return Err(format!("Couldn't parse YAML: {e}")),
