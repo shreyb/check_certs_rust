@@ -16,13 +16,21 @@ use yaml_rust2::{Yaml, YamlLoader};
 fn create_command_with_args() -> Command {
     Command::new("check_cert")
         .arg_required_else_help(true)
+
+        // Config/experiment/account arg group
         .arg(arg!(-c --config     <FILE>    "Configuration file")
+            .requires("accountname")
+            .requires("experiment"))
+        .arg(arg!(-e --experiment <EXPERIMENT>   "Experiment name from config file (must be used with -c/--config and -a/--accountname")
+            .requires("config")
             .requires("accountname"))
-        .arg(arg!(-a --accountname <ACCOUNTNAME>   "Account name from config file (must be used with -c/--config")
-            .requires("config"))
+        .arg(arg!(-a --accountname <ACCOUNTNAME>   "Account name from config file (must be used with -c/--config and -e/--experiment")
+            .requires("config")
+            .requires("experiment"))
+
         .arg(arg!(-f --filename  <FILE>   "Filename of certificate to check"))
         .group(ArgGroup::new("configfile_group")
-            .args(["config", "accountname"])
+            .args(["config", "accountname", "experiment"])
             .multiple(true)
             .conflicts_with("filename")
         )
@@ -31,6 +39,8 @@ fn create_command_with_args() -> Command {
 struct RunArgs<'a> {
     filename: Option<&'a String>,
     accountname: Option<&'a String>,
+    experiment: Option<&'a String>,
+    config: Option<&'a String>,
 }
 
 fn get_cert_path(
@@ -61,6 +71,8 @@ fn main() {
     let args = RunArgs {
         filename: matches.get_one::<String>("filename"),
         accountname: matches.get_one::<String>("accountname"),
+        experiment: matches.get_one::<String>("experiment"),
+        config: matches.get_one::<String>("config"),
     };
 
     let root = env::current_dir().expect("Can't find current directory");
