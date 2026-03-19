@@ -2,8 +2,10 @@
 mod tests {
     use crate::*;
 
+    use log::info;
     use std::{fs::File, path::PathBuf};
 
+    use test_log::test;
     use tmp_env::{self, TmpDir, create_temp_dir};
 
     fn tmp_dir_with_config(s: &str) -> TmpDir {
@@ -215,8 +217,7 @@ mod tests {
         }
     }
 
-    // TODO: If this file doesn't exist, warn user that this test will be skipped
-    #[test]
+    #[test_log::test]
     fn run_with_good_cert() {
         let root = env::current_dir().expect("Can't find current directory");
         let filename = root
@@ -225,6 +226,11 @@ mod tests {
             .into_os_string()
             .into_string()
             .expect("Couldn't convert Path into String");
+
+        if !path::PathBuf::from(&filename).exists() {
+            info!("Good cert file doesn't exist at test_files/good.cert. Skipping test");
+            return;
+        }
 
         let _filename = filename.clone();
         let args = RunArgs {
