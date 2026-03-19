@@ -228,7 +228,9 @@ mod tests {
             .expect("Couldn't convert Path into String");
 
         if !path::PathBuf::from(&filename).exists() {
-            info!("Good cert file doesn't exist at test_files/good.cert. Skipping test");
+            info!(
+                "Good cert file doesn't exist at test_files/good.cert. Generate a self-signed cert with subject /CN=test.example.com and install it at test_files/good.cert. Skipping test"
+            );
             return;
         }
 
@@ -242,12 +244,12 @@ mod tests {
         let mut out = std::io::Cursor::new(vec![]);
 
         let _ = run(args, &mut out, root).expect("Should not have gotten error");
-        let expected_out = format!("Filename: {}\n", _filename).to_owned() +
-    "subject=/DC=org/DC=incommon/C=US/ST=Illinois/O=Fermi Forward Discovery Group, LLC/CN=jobsub-test.fnal.gov
-notBefore=Oct 10 00:00:00 2025 GMT
-notAfter=Nov  9 23:59:59 2026 GMT
-";
-        assert_eq!(out.into_inner(), expected_out.as_bytes());
+
+        let output = String::from_utf8(out.into_inner()).unwrap();
+        assert!(output.contains(format!("Filename: {}\n", _filename).as_str()));
+        assert!(output.contains("subject=/CN=test.example.com"));
+        assert!(output.contains("notBefore"));
+        assert!(output.contains("notAfter"));
     }
 
     #[test]
