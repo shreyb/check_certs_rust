@@ -215,12 +215,13 @@ mod tests {
         }
     }
 
+    // TODO: If this file doesn't exist, warn user that this test will be skipped
     #[test]
     fn run_with_good_cert() {
         let root = env::current_dir().expect("Can't find current directory");
         let filename = root
             .join("test_files")
-            .join("acct.cert")
+            .join("good.cert")
             .into_os_string()
             .into_string()
             .expect("Couldn't convert Path into String");

@@ -1,2 +1,3 @@
 /target
-certs/acct.cert
+certs/*
+test_files/good.cert
