@@ -116,7 +116,9 @@ fn create_command_with_args() -> Command {
         // Config/experiment/account arg group
         .arg(arg!(-c --config     <FILE>    "Configuration file")
             .requires("accountname")
-            .requires("experiment"))
+            .requires("experiment")
+            .default_value("/etc/managed-tokens/managedTokens.yml")
+        )
         .arg(arg!(-e --experiment <EXPERIMENT>   "Experiment name from config file (must be used with -c/--config and -a/--accountname")
             .requires("config")
             .requires("accountname"))
