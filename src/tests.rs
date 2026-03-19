@@ -8,16 +8,6 @@ mod tests {
     use test_log::test;
     use tmp_env::{self, TmpDir, create_temp_dir};
 
-    fn tmp_dir_with_config(s: &str) -> TmpDir {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(s.as_bytes())
-            .expect("Couldn't write data to file");
-        tmp_path
-    }
-
     #[test]
     fn get_cert_path_config_file() {
         let tmp_path = tmp_dir_with_config(
@@ -283,20 +273,18 @@ mod tests {
         }
     }
 
-    // TODO: See if we can consolidate some of this code so we're not repeating
     #[test]
     fn check_config_bad_file() {
-        // Bogus file
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-
         assert!(
             get_certfile_from_config(
                 &String::from(
-                    filename
+                    // Bogus file
+                    create_temp_dir()
+                        .expect("Couldn't create temp dir")
                         .as_path()
+                        .join("fake_config_doesnt_exist.yml")
                         .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
+                        .unwrap()
                 ),
                 &String::from("experiment"),
                 &String::from("account"),
@@ -307,21 +295,11 @@ mod tests {
 
     #[test]
     fn check_config_bad_yaml() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all("foo: bar:".as_bytes())
-            .expect("Couldn't write data to file");
+        let tmp_path = tmp_dir_with_config("foo: bar:");
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -331,21 +309,11 @@ mod tests {
 
     #[test]
     fn check_config_yaml_not_dict() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all("foobar".as_bytes())
-            .expect("Couldn't write data to file");
+        let tmp_path = tmp_dir_with_config("foobar");
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -358,25 +326,14 @@ mod tests {
 
     #[test]
     fn check_config_yaml_doesnt_have_experiments() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "foo:
-    bar"
-                .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
+        let tmp_path = tmp_dir_with_config(
+            "foo:
+    bar",
+        );
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -386,25 +343,14 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_not_dict() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
-    bar"
-                .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
+    bar",
+        );
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -414,26 +360,15 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_no_experiment() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment_different:
-        blah"
-                    .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
+        blah",
+        );
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -445,26 +380,15 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_experiment_not_dict() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment:
-        blah"
-                    .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
+        blah",
+        );
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -474,27 +398,16 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_experiment_no_accounts() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment:
         foo:
-            bar"
-                .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
+            bar",
+        );
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -504,27 +417,16 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_experiment_no_accounts_dict() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment:
         accounts:
-            bar"
-                .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
+            bar",
+        );
 
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -535,28 +437,16 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_experiment_account_no_certfile() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment:
         accounts:
             account: role
-            foo: bar"
-                    .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
-
+            foo: bar",
+        );
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -566,30 +456,18 @@ mod tests {
 
     #[test]
     fn check_config_yaml_experiments_experiment_account_certfile_not_str() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment:
         accounts:
             account: role
             foo: bar
         certfile: 4
-"
-                .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
-
+",
+        );
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
@@ -599,36 +477,25 @@ mod tests {
 
     #[test]
     fn check_config_yaml_no_accountname_for_expt() {
-        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
-        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
-        File::create_new(filename.as_path())
-            .expect("Couldn't create new temp file for config")
-            .write_all(
-                "experiments:
+        let tmp_path = tmp_dir_with_config(
+            "experiments:
     experiment:
         accounts:
             account2: role
             foo: bar
         certfile: 4
-"
-                .as_bytes(),
-            )
-            .expect("Couldn't write data to file");
-
+",
+        );
         assert!(
             get_certfile_from_config(
-                &String::from(
-                    filename
-                        .as_path()
-                        .to_str()
-                        .expect("Couldn't convert tmp_file filename to string"),
-                ),
+                &String::from(tmp_path.as_path().join("fake_config.yml").to_str().unwrap()),
                 &String::from("experiment"),
                 &String::from("account"),
             )
             .is_err_and(|x| x == String::from("Could not find account account in experiment entry"))
         );
     }
+
     #[test]
     fn check_get_certfile_from_config() {
         let res = get_certfile_from_config(
@@ -639,5 +506,15 @@ mod tests {
         .expect("shouldn't cause an error");
 
         assert!(res.is_some_and(|x| x == String::from("/path/to/nondefault/cert")));
+    }
+
+    fn tmp_dir_with_config(s: &str) -> TmpDir {
+        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
+        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
+        File::create_new(filename.as_path())
+            .expect("Couldn't create new temp file for config")
+            .write_all(s.as_bytes())
+            .expect("Couldn't write data to file");
+        tmp_path
     }
 }
