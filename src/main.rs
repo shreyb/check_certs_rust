@@ -8,7 +8,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 mod tests;
 
-const DEFAULT_CONFIG: &str = "/etc/managed-tokens/managedTokens.yml";
+const DEFAULT_CONFIG: &str = "/etc/managed-proxies/managedProxies.yml";
 
 fn main() {
     let matches = create_command_with_args().get_matches();
