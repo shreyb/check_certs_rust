@@ -61,6 +61,27 @@ mod tests {
     }
 
     #[test]
+    fn run_get_cert_path_config_default() {
+        let tmp_path = create_temp_dir().expect("Couldn't create temp dir");
+        let filename = PathBuf::from(tmp_path.as_path()).join("fake_config.yml");
+        if let DEFAULT_CONFIG = filename.as_os_str().to_str().expect("This should be a str") {
+            // If default config file exists, move it somewhere else
+            let args = RunArgs {
+                accountname: Some(&String::from("expt")),
+                filename: None,
+                experiment: Some(&String::from("acct")),
+                config: None,
+            };
+            let mut out = std::io::Cursor::new(vec![]);
+            assert!(
+                run(args, &mut out, path::PathBuf::from("fakeroot"))
+                    .is_err_and(|e| e.contains("Since filename is not specified")
+                        && e.contains("should be specified"))
+            )
+        };
+    }
+
+    #[test]
     fn run_get_cert_path_config_experiment_accountname_not_specified() {
         struct TestArgs<'a> {
             config: Option<&'a String>,
@@ -73,11 +94,6 @@ mod tests {
         let some_acct = Some(&String::from("acct"));
 
         let test_cases: Vec<TestArgs> = vec![
-            TestArgs {
-                config: None,
-                experiment: some_expt,
-                accountname: some_acct,
-            },
             TestArgs {
                 config: some_config,
                 experiment: None,
@@ -289,7 +305,7 @@ mod tests {
                 &String::from("experiment"),
                 &String::from("account"),
             )
-            .is_err_and(|x| x.contains("Couldn't read YAML config to string"))
+            .is_err_and(|x| x.contains("No such file or directory"))
         );
     }
 

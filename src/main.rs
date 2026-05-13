@@ -8,8 +8,11 @@ use yaml_rust2::{Yaml, YamlLoader};
 
 mod tests;
 
+const DEFAULT_CONFIG: &str = "/etc/managed-tokens/managedTokens.yml";
+
 fn main() {
     let matches = create_command_with_args().get_matches();
+
     let args = RunArgs {
         filename: matches.get_one::<String>("filename"),
         accountname: matches.get_one::<String>("accountname"),
@@ -34,22 +37,19 @@ where
     // 2a. If certfile set, use that
     // 2b. If not set, construct cert path
 
-    // 1.
     let filename: path::PathBuf;
 
     if let Some(val) = args.filename {
         filename = path::PathBuf::from(val)
     } else {
-        let config = args
-            .config
-            .ok_or("Since filename is not specified, config should be specified")?;
+        let default_config = &String::from(DEFAULT_CONFIG);
+        let config = args.config.unwrap_or(default_config);
         let experiment = args
             .experiment
             .ok_or("Since filename is not specified, experiment should be specified")?;
         let accountname = args
             .accountname
             .ok_or("Since filename is not specified, accountname should be specified")?;
-        //
         filename = get_cert_path(root, config, experiment, accountname)?;
     }
 
@@ -117,13 +117,11 @@ fn create_command_with_args() -> Command {
         .arg(arg!(-c --config     <FILE>    "Configuration file")
             .requires("accountname")
             .requires("experiment")
-            .default_value("/etc/managed-tokens/managedTokens.yml")
+            .default_value(DEFAULT_CONFIG)
         )
         .arg(arg!(-e --experiment <EXPERIMENT>   "Experiment name from config file (must be used with -c/--config and -a/--accountname")
-            .requires("config")
             .requires("accountname"))
         .arg(arg!(-a --accountname <ACCOUNTNAME>   "Account name from config file (must be used with -c/--config and -e/--experiment")
-            .requires("config")
             .requires("experiment"))
 
         .arg(arg!(-f --filename  <FILE>   "Filename of certificate to check"))
@@ -164,7 +162,7 @@ fn get_certfile_from_config(
     // Read config file in
     let config_string = match fs::read_to_string(path::PathBuf::from(config)) {
         Ok(val) => val,
-        Err(e) => return Err(format!("Couldn't read YAML config to string: {e}")),
+        Err(e) => return Err(format!("Couldn't read YAML config {config} to string: {e}")),
     };
     let config_yaml = match YamlLoader::load_from_str(&config_string) {
         Ok(val) => val,
